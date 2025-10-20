@@ -216,6 +216,33 @@ static void process_rule(const Rule &r) {
            r.from.c_str(), r.to.c_str(), r.ext.c_str(), moved, skipped);
 }
 
+static int load_interval(const std::string &conf_path, int defval = 20) {
+    std::ifstream in(conf_path);
+    if (!in) {
+        syslog(LOG_ERR, "cannot open config: %s", conf_path.c_str());
+        return defval;
+    }
+    std::string line;
+    size_t lineno = 0;
+    while (std::getline(in, line)) {
+        ++lineno;
+        if (auto pos = line.find('#'); pos != std::string::npos)
+            line.erase(pos);
+        std::istringstream iss(line);
+        std::string key;
+        if (!(iss >> key)) continue;
+        if (key == "interval") {
+            int v = 0;
+            if (iss >> v && v > 0) {
+                return v;
+            } else {
+                syslog(LOG_WARNING, "bad 'interval' at line %zu; keep %d", lineno, defval);
+            }
+        }
+    }
+    return defval;
+}
+
 class Daemon {
 public:
     static Daemon& instance(const std::string& cfg = "",
@@ -244,17 +271,18 @@ public:
         install_signals();
 
         rules = load_config(config_path);
-        syslog(LOG_INFO, "started; config=%s pidfile=%s",
-               config_path.c_str(), pid_path.c_str());
+        interval_sec = load_interval(config_path, interval_sec);
+        syslog(LOG_INFO, "started; config=%s pidfile=%s interval=%d", config_path.c_str(), pid_path.c_str(), interval_sec);
 
         while (!stop) {
             if (reload) {
                 reload = 0;
                 rules = load_config(config_path);
-                syslog(LOG_INFO, "reloaded config");
+                interval_sec = load_interval(config_path, interval_sec);
+                syslog(LOG_INFO, "reloaded config; interval=%d", interval_sec);
             }
             for (const auto& r : rules) process_rule(r);
-            sleep(20);
+            sleep(interval_sec);
         }
 
         syslog(LOG_INFO, "stopped");
@@ -287,6 +315,7 @@ private:
     std::string pid_path   = "/tmp/lab1d.pid";
     std::string log_tag    = "lab1d";
     std::vector<Rule> rules;
+    int interval_sec = 20;
     volatile sig_atomic_t reload = 0;
     volatile sig_atomic_t stop   = 0;
 };
