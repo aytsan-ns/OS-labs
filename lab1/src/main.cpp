@@ -19,8 +19,7 @@
 namespace fs = std::filesystem;
 
 static std::string to_lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c){ return std::tolower(c); });
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
     return s;
 }
 
@@ -32,18 +31,21 @@ struct Rule {
 
 static std::string ext_lower_of(const fs::path &p) {
     auto e = p.extension().string();
-    if (!e.empty() && e.front() == '.') e.erase(0, 1);
+    if (!e.empty() && e.front() == '.')
+        e.erase(0, 1);
     return to_lower(e);
 }
 
 static fs::path unique_dest_path(fs::path dest_dir, fs::path base_name) {
     fs::path candidate = dest_dir / base_name;
-    if (!fs::exists(candidate)) return candidate;
+    if (!fs::exists(candidate))
+        return candidate;
     auto stem = base_name.stem().string();
     auto ext  = base_name.extension().string();
     for (int i = 1; i < 10000; ++i) {
         fs::path cand = dest_dir / fs::path(stem + "(" + std::to_string(i) + ")" + ext);
-        if (!fs::exists(cand)) return cand;
+        if (!fs::exists(cand))
+            return cand;
     }
     return candidate;
 }
@@ -60,17 +62,21 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
     size_t lineno = 0;
     while (std::getline(in, line)) {
         ++lineno;
-        if (auto pos = line.find('#'); pos != std::string::npos) line.erase(pos);
+        if (auto pos = line.find('#'); pos != std::string::npos)
+            line.erase(pos);
         std::istringstream iss(line);
         std::string f1, f2, ext;
-        if (!(iss >> f1 >> f2 >> ext)) continue;
+        if (!(iss >> f1 >> f2 >> ext))
+            continue;
 
         Rule r;
         r.from = fs::path(f1);
-        r.to   = fs::path(f2);
-        if (!r.from.is_absolute()) r.from = fs::absolute(conf_dir / r.from);
-        if (!r.to.is_absolute())   r.to   = fs::absolute(conf_dir / r.to);
-        r.ext  = to_lower(ext);
+        r.to = fs::path(f2);
+        if (!r.from.is_absolute())
+            r.from = fs::absolute(conf_dir / r.from);
+        if (!r.to.is_absolute())
+            r.to = fs::absolute(conf_dir / r.to);
+        r.ext = to_lower(ext);
         out.push_back(std::move(r));
     }
     syslog(LOG_INFO, "config loaded: %zu rule(s)", out.size());
@@ -79,25 +85,52 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
 
 static void daemonize() {
     pid_t pid = fork();
-    if (pid < 0) { syslog(LOG_ERR, "fork #1: %m"); _exit(1); }
-    if (pid > 0) _exit(0);
+    if (pid < 0) { 
+        syslog(LOG_ERR, "fork #1: %m");
+        _exit(1);
+    }
+    if (pid > 0) 
+        _exit(0);
 
-    if (setsid() < 0) { syslog(LOG_ERR, "setsid: %m"); _exit(1); }
+    if (setsid() < 0) {
+        syslog(LOG_ERR, "setsid: %m");
+        _exit(1);
+    }
 
     pid = fork();
-    if (pid < 0) { syslog(LOG_ERR, "fork #2: %m"); _exit(1); }
-    if (pid > 0) _exit(0);
+    if (pid < 0) {
+        syslog(LOG_ERR, "fork #2: %m");
+        _exit(1);
+    }
+    if (pid > 0) 
+        _exit(0);
 
     umask(0);
 
-    if (chdir("/") != 0) { syslog(LOG_ERR, "chdir('/'): %m"); _exit(1); }
+    if (chdir("/") != 0) {
+        syslog(LOG_ERR, "chdir('/'): %m");
+        _exit(1);
+    }
 
     int fd0 = open("/dev/null", O_RDWR);
-    if (fd0 < 0) { syslog(LOG_ERR, "open /dev/null: %m"); _exit(1); }
-    if (dup2(fd0, STDIN_FILENO)  == -1) { syslog(LOG_ERR, "dup2 stdin: %m");  _exit(1); }
-    if (dup2(fd0, STDOUT_FILENO) == -1) { syslog(LOG_ERR, "dup2 stdout: %m"); _exit(1); }
-    if (dup2(fd0, STDERR_FILENO) == -1) { syslog(LOG_ERR, "dup2 stderr: %m"); _exit(1); }
-    if (fd0 > 2) close(fd0);
+    if (fd0 < 0) {
+        syslog(LOG_ERR, "open /dev/null: %m");
+        _exit(1);
+    }
+    if (dup2(fd0, STDIN_FILENO)  == -1) {
+        syslog(LOG_ERR, "dup2 stdin: %m");
+        _exit(1);
+    }
+    if (dup2(fd0, STDOUT_FILENO) == -1) {
+        syslog(LOG_ERR, "dup2 stdout: %m");
+        _exit(1);
+    }
+    if (dup2(fd0, STDERR_FILENO) == -1) {
+        syslog(LOG_ERR, "dup2 stderr: %m");
+        _exit(1);
+    }
+    if (fd0 > 2) 
+        close(fd0);
 }
 
 static bool proc_alive(pid_t pid) {
@@ -105,7 +138,8 @@ static bool proc_alive(pid_t pid) {
 }
 
 static bool proc_exists(pid_t pid) {
-    if (pid <= 1) return false;
+    if (pid <= 1)
+        return false;
     return fs::exists(fs::path("/proc") / std::to_string(pid));
 }
 
@@ -118,7 +152,8 @@ static void ensure_singleton(const std::string &pid_path) {
             kill(old, SIGTERM);
             for (int i = 0; i < 50; ++i) {
                 usleep(100000); // 0.1s
-                if (!(proc_exists(old) || proc_alive(old))) break;
+                if (!(proc_exists(old) || proc_alive(old)))
+                    break;
             }
         }
     }
@@ -147,10 +182,16 @@ static void process_rule(const Rule &r) {
 
     size_t moved = 0, skipped = 0;
     for (auto &de : fs::directory_iterator(r.from)) {
-        if (!de.is_regular_file()) { ++skipped; continue; }
+        if (!de.is_regular_file()) {
+            ++skipped;
+            continue;
+        }
         const auto &src = de.path();
         std::string ex = ext_lower_of(src);
-        if (ex == r.ext) { ++skipped; continue; }
+        if (ex == r.ext) {
+            ++skipped;
+            continue;
+        }
         fs::path dst = unique_dest_path(r.to, src.filename());
         try {
             fs::rename(src, dst);
@@ -181,9 +222,12 @@ public:
                             const std::string& pid = "",
                             const std::string& tag = "lab1d") {
         static Daemon d;
-        if (!cfg.empty()) d.config_path = cfg;
-        if (!pid.empty()) d.pid_path    = pid;
-        if (!tag.empty()) d.log_tag     = tag;
+        if (!cfg.empty())
+            d.config_path = cfg;
+        if (!pid.empty())
+            d.pid_path = pid;
+        if (!tag.empty())
+            d.log_tag = tag;
         return d;
     }
 
@@ -254,9 +298,15 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         auto getv = [&](int &i)->std::string { if (i+1 < argc) return std::string(argv[++i]); return std::string(); };
-        if (a == "--config") { cfg = getv(i); }
-        else if (a == "--pid") { pid = getv(i); }
-        else if (a == "--tag") { tag = getv(i); }
+        if (a == "--config") { 
+            cfg = getv(i); 
+        }
+        else if (a == "--pid") { 
+            pid = getv(i); 
+        }
+        else if (a == "--tag") { 
+            tag = getv(i); 
+        }
     }
 
     if (cfg.empty()) {
