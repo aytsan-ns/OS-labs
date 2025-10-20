@@ -64,10 +64,16 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
         ++lineno;
         if (auto pos = line.find('#'); pos != std::string::npos)
             line.erase(pos);
+        
+        if (line.find_first_not_of(" \t\r\n") == std::string::npos)
+            continue;
+
         std::istringstream iss(line);
         std::string f1, f2, ext;
-        if (!(iss >> f1 >> f2 >> ext))
+        if (!(iss >> f1 >> f2 >> ext)) {
+            syslog(LOG_WARNING, "bad config line %zu: expected '<from> <to> <ext>'", lineno);
             continue;
+        }
 
         Rule r;
         r.from = fs::path(f1);
@@ -76,6 +82,8 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
             r.from = fs::absolute(conf_dir / r.from);
         if (!r.to.is_absolute())
             r.to = fs::absolute(conf_dir / r.to);
+        if (!ext.empty() && ext.front() == '.')
+            ext.erase(0, 1);
         r.ext = to_lower(ext);
         out.push_back(std::move(r));
     }
@@ -156,6 +164,11 @@ static void ensure_singleton(const std::string &pid_path) {
                     break;
             }
         }
+        else {
+            syslog(LOG_WARNING, "stale pid file at %s; removing", pid_path.c_str());
+            std::error_code ec;
+            fs::remove(pid_path, ec);
+        }
     }
 }
 
@@ -216,31 +229,32 @@ static void process_rule(const Rule &r) {
            r.from.c_str(), r.to.c_str(), r.ext.c_str(), moved, skipped);
 }
 
-static int load_interval(const std::string &conf_path, int defval = 20) {
+static bool try_load_interval(const std::string &conf_path, int &out) {
     std::ifstream in(conf_path);
     if (!in) {
         syslog(LOG_ERR, "cannot open config: %s", conf_path.c_str());
-        return defval;
+        return false;
     }
     std::string line;
     size_t lineno = 0;
     while (std::getline(in, line)) {
         ++lineno;
-        if (auto pos = line.find('#'); pos != std::string::npos)
-            line.erase(pos);
+        if (auto pos = line.find('#'); pos != std::string::npos) line.erase(pos);
+        if (line.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+
         std::istringstream iss(line);
         std::string key;
         if (!(iss >> key)) continue;
+
         if (key == "interval") {
             int v = 0;
-            if (iss >> v && v > 0) {
-                return v;
-            } else {
-                syslog(LOG_WARNING, "bad 'interval' at line %zu; keep %d", lineno, defval);
-            }
+            if ((iss >> v) && v > 0) { out = v; return true; }
+            syslog(LOG_WARNING, "bad 'interval' at line %zu: expected positive integer", lineno);
+            return false;
         }
     }
-    return defval;
+    syslog(LOG_ERR, "missing 'interval' in config");
+    return false;
 }
 
 class Daemon {
@@ -261,25 +275,37 @@ public:
     void run() {
         openlog(log_tag.c_str(), LOG_PID, LOG_USER);
 
+        rules = load_config(config_path);
+        if (!try_load_interval(config_path, interval_sec)) {
+            syslog(LOG_ERR, "cannot start without valid 'interval'");
+            std::fprintf(stderr, "lab1d: cannot start without valid 'interval' in %s\n", config_path.c_str());
+            closelog();
+            _exit(2);
+        }
+
         ensure_singleton(pid_path);
         daemonize();
 
         closelog();
         openlog(log_tag.c_str(), LOG_PID, LOG_USER);
-
-        write_pid(pid_path);
+        
         install_signals();
 
-        rules = load_config(config_path);
-        interval_sec = load_interval(config_path, interval_sec);
+        write_pid(pid_path);
         syslog(LOG_INFO, "started; config=%s pidfile=%s interval=%d", config_path.c_str(), pid_path.c_str(), interval_sec);
 
         while (!stop) {
             if (reload) {
                 reload = 0;
                 rules = load_config(config_path);
-                interval_sec = load_interval(config_path, interval_sec);
-                syslog(LOG_INFO, "reloaded config; interval=%d", interval_sec);
+                int ni = 0;
+                if (try_load_interval(config_path, ni)) {
+                    interval_sec = ni;
+                    syslog(LOG_INFO, "reloaded config; interval=%d", interval_sec);
+                }
+                else {
+                    syslog(LOG_WARNING, "no valid 'interval' on reload; keep %d", interval_sec);
+                }
             }
             for (const auto& r : rules) process_rule(r);
             sleep(interval_sec);
@@ -315,7 +341,7 @@ private:
     std::string pid_path   = "/tmp/lab1d.pid";
     std::string log_tag    = "lab1d";
     std::vector<Rule> rules;
-    int interval_sec = 20;
+    int interval_sec = 0;
     volatile sig_atomic_t reload = 0;
     volatile sig_atomic_t stop   = 0;
 };
