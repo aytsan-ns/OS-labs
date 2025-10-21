@@ -70,6 +70,14 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
 
         std::istringstream iss(line);
         std::string f1, f2, ext;
+
+        {
+            std::istringstream t(line);
+            std::string key; t >> key;
+            if (key == "interval")
+                continue;
+        }
+
         if (!(iss >> f1 >> f2 >> ext)) {
             syslog(LOG_WARNING, "bad config line %zu: expected '<from> <to> <ext>'", lineno);
             continue;
@@ -85,6 +93,19 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
         if (!ext.empty() && ext.front() == '.')
             ext.erase(0, 1);
         r.ext = to_lower(ext);
+
+        if (!fs::exists(r.from) || !fs::is_directory(r.from)) {
+            syslog(LOG_WARNING, "config line %zu: source not exists or not a directory: %s", lineno, r.from.c_str());
+            continue;
+        }
+
+        std::error_code ec;
+        fs::create_directories(r.to, ec);
+        if (ec || !fs::is_directory(r.to)) {
+            syslog(LOG_WARNING, "config line %zu: cannot create target dir %s: %s", lineno, r.to.c_str(), ec.message().c_str());
+            continue;
+        }
+
         out.push_back(std::move(r));
     }
     syslog(LOG_INFO, "config loaded: %zu rule(s)", out.size());
@@ -185,14 +206,6 @@ static void write_pid(const std::string &pid_path) {
 }
 
 static void process_rule(const Rule &r) {
-    std::error_code ec;
-    fs::create_directories(r.to, ec);
-
-    if (!fs::exists(r.from)) {
-        syslog(LOG_WARNING, "source not exists: %s", r.from.c_str());
-        return;
-    }
-
     size_t moved = 0, skipped = 0;
     for (auto &de : fs::directory_iterator(r.from)) {
         if (!de.is_regular_file()) {
