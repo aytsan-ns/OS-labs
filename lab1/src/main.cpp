@@ -92,6 +92,10 @@ static std::vector<Rule> load_config(const std::string &conf_path) {
             r.to = fs::absolute(conf_dir / r.to);
         if (!ext.empty() && ext.front() == '.')
             ext.erase(0, 1);
+        if (ext.empty()) {
+            syslog(LOG_WARNING, "config line %zu: empty extension", lineno);
+            continue;
+        }
         r.ext = to_lower(ext);
 
         if (!fs::exists(r.from) || !fs::is_directory(r.from)) {
@@ -229,17 +233,14 @@ static void process_rule(const Rule &r) {
                     fs::remove(src);
                     ++moved;
                 } catch (const fs::filesystem_error &e2) {
-                    syslog(LOG_ERR, "copy/remove failed: %s -> %s: %s",
-                           src.c_str(), dst.c_str(), e2.what());
+                    syslog(LOG_ERR, "copy/remove failed: %s -> %s: %s", src.c_str(), dst.c_str(), e2.what());
                 }
             } else {
-                syslog(LOG_ERR, "rename failed: %s -> %s: %s",
-                       src.c_str(), dst.c_str(), e.what());
+                syslog(LOG_ERR, "rename failed: %s -> %s: %s", src.c_str(), dst.c_str(), e.what());
             }
         }
     }
-    syslog(LOG_INFO, "rule: from=%s to=%s ext!=%s moved=%zu skipped=%zu",
-           r.from.c_str(), r.to.c_str(), r.ext.c_str(), moved, skipped);
+    syslog(LOG_INFO, "rule: from=%s to=%s ext!=%s moved=%zu skipped=%zu", r.from.c_str(), r.to.c_str(), r.ext.c_str(), moved, skipped);
 }
 
 static bool try_load_interval(const std::string &conf_path, int &out) {
@@ -272,17 +273,20 @@ static bool try_load_interval(const std::string &conf_path, int &out) {
 
 class Daemon {
 public:
-    static Daemon& instance(const std::string& cfg = "",
-                            const std::string& pid = "",
-                            const std::string& tag = "lab1d") {
+    static Daemon& instance() {
         static Daemon d;
-        if (!cfg.empty())
-            d.config_path = cfg;
-        if (!pid.empty())
-            d.pid_path = pid;
-        if (!tag.empty())
-            d.log_tag = tag;
         return d;
+    }
+
+    void init(const std::string& cfg, const std::string& pid, const std::string& tag) {
+        if (initialized_) {
+            syslog(LOG_WARNING, "daemon reinit ignored: already initialized");
+            return;
+        }
+        config_path = cfg;
+        pid_path = pid;
+        log_tag = tag;
+        initialized_ = true;
     }
 
     void run() {
@@ -333,6 +337,7 @@ private:
     Daemon() = default;
     Daemon(const Daemon&) = delete;
     Daemon& operator=(const Daemon&) = delete;
+    bool initialized_ = false;
 
     static void on_sighup(int)  { instance().reload = 1; }
     static void on_sigterm(int) { instance().stop   = 1; }
@@ -387,6 +392,8 @@ int main(int argc, char **argv) {
         pid = fs::absolute(pid).string();
     } catch (...) {}
 
-    Daemon::instance(cfg, pid, tag).run();
+    auto& d = Daemon::instance();
+    d.init(cfg, pid, tag);
+    d.run();
     return 0;
 }
