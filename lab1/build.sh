@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Папки
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD="$ROOT/.build"
 BIN="$ROOT/bin"
 
 mkdir -p "$BUILD" "$BIN"
 
-# Компиляция в объектные файлы (промежуточные артефакты)
-g++ -std=c++17 -O2 -Wall -Werror -Isrc -c src/main.cpp -o "$BUILD/main.o"
+SRCS=(
+  src/main.cpp
+  src/daemon.cpp
+  src/config.cpp
+  src/file_worker.cpp
+  src/daemon_utils.cpp
+  src/utils.cpp
+)
 
-# Линковка в один бинарник
-g++ "$BUILD/main.o" -o "$BIN/lab1d"
+for s in "${SRCS[@]}"; do
+  o="$BUILD/$(basename "${s%.cpp}.o")"
+  g++ -std=c++17 -O2 -Wall -Werror -Isrc -c "$ROOT/$s" -o "$o"
+done
 
-# Очистка промежуточных файлов
+g++ "$BUILD"/*.o -o "$BIN/lab1d"
+
 rm -rf "$BUILD"
-
 echo "Built: $BIN/lab1d"
