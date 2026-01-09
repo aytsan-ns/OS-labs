@@ -78,7 +78,7 @@ void child_process(int kidId) {
             break;
         }
 
-        if (req.command == 2) {
+        if (req.command == KidCommand::Shutdown) {
             break;
         }
 
@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
 
         for (int i = 0; i < nKids; ++i) {
             KidRequest req{};
-            req.command = 1;
+            req.command = KidCommand::PlayMove;
             req.alive = kids[i].alive ? 1 : 0;
             if (!conns[i]->Write(&req, sizeof(req))) {
                 std::cerr << "Не удалось отправить запрос козлёнку " << i << std::endl;
@@ -212,7 +212,7 @@ int main(int argc, char* argv[]) {
     }
 
     KidRequest stopReq{};
-    stopReq.command = 2;
+    stopReq.command = KidCommand::Shutdown;
     stopReq.alive = 0;
 
     for (int i = 0; i < nKids; ++i) {
