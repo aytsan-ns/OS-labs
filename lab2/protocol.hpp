@@ -1,11 +1,16 @@
 #pragma once
 #include <cstdint>
 
+enum class KidCommand : int32_t {
+    PlayMove = 1,
+    Shutdown = 2
+};
+
 struct KidRequest {
-    int32_t command; // 1 = сыграть ход, 2 = завершиться
-    int32_t alive;   // 1 = жив, 0 = мёртв
+    KidCommand command;
+    int32_t alive;
 };
 
 struct KidResponse {
-    int32_t number;  // число козлёнка
+    int32_t number;
 };
